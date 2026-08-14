@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Marginalia — editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a href="index.html" class="brand"><span class="mark">M</span>arginalia</a>
+    <div class="nav-links">
+      <a href="index.html">Library</a>
+      <a href="settings.html">AI Settings</a>
+    </div>
+  </div>
+</nav>
+
+<div class="mobile-toggles">
+  <button class="btn btn-sm" id="toggle-catalog">Chapters</button>
+  <button class="btn btn-sm" id="toggle-ai">AI Assist</button>
+</div>
+
+<div class="editor-shell" id="shell">
+  <!-- Chapter catalog -->
+  <aside class="catalog" id="catalog">
+    <div class="catalog-head">
+      <div class="book-title" id="cat-title">—</div>
+      <div class="book-author" id="cat-author"></div>
+    </div>
+    <div id="chapter-list"></div>
+    <button class="add-chapter" id="add-chapter-btn">+ Add chapter</button>
+
+    <div style="padding:18px 12px 6px; border-top:1px solid var(--line-dark); margin-top:18px;">
+      <div class="eyebrow" style="margin-bottom:10px;">Export</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn btn-sm" id="export-epub">Download .epub</button>
+        <button class="btn btn-sm" id="export-pdf">Download .pdf</button>
+        <button class="btn btn-sm" id="export-txt">Download .txt</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Manuscript -->
+  <main class="manuscript-wrap">
+    <div class="manuscript-toolbar">
+      <div class="toolbar-left">
+        <button class="tb-btn" id="tb-bold" title="Bold"><b>B</b></button>
+        <button class="tb-btn" id="tb-italic" title="Italic"><i>I</i></button>
+        <button class="tb-btn" id="tb-h2" title="Heading">H</button>
+        <button class="tb-btn" id="tb-quote" title="Quote">"</button>
+      </div>
+      <div class="toolbar-right">
+        <span><span class="save-dot" id="save-dot"></span><span id="save-label">Saved</span></span>
+        <span id="word-count">0 words</span>
+      </div>
+    </div>
+    <div class="manuscript-page">
+      <input class="chapter-title-input" id="chapter-title" placeholder="Chapter title" />
+      <div class="manuscript-body" id="chapter-body" contenteditable="true" data-placeholder="Start writing, or ask the assistant on the right for a draft to work from…"></div>
+    </div>
+  </main>
+
+  <!-- AI assist -->
+  <aside class="ai-panel" id="ai-panel">
+    <h4>Writing assistant</h4>
+    <div class="sub">Uses your manuscript as context</div>
+
+    <div class="ai-actions">
+      <button class="ai-chip" data-preset="draft">Draft this chapter</button>
+      <button class="ai-chip" data-preset="continue">Continue from here</button>
+      <button class="ai-chip" data-preset="expand">Expand selection</button>
+      <button class="ai-chip" data-preset="rewrite">Rewrite, tighter</button>
+      <button class="ai-chip" data-preset="ideas">Suggest what happens next</button>
+    </div>
+
+    <textarea id="ai-instruction" placeholder="Or describe what you need — e.g. 'Open with a storm rolling in over the harbor.'"></textarea>
+    <button class="btn btn-primary" id="ai-run" style="width:100%; justify-content:center;">Ask assistant</button>
+
+    <div id="ai-status"></div>
+    <div id="ai-result-wrap"></div>
+
+    <div class="ai-note" id="ai-key-note" style="display:none;">
+      No Anthropic API key connected yet. <a href="settings.html">Add one in AI Settings</a> to use the writing assistant.
+    </div>
+  </aside>
+</div>
+
+<script src="js/app.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/export.js"></script>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const bookId = params.get("book");
+  let book = getBook(bookId);
+  let activeChapterId = book ? book.chapters[0]?.id : null;
+  let saveTimer = null;
+
+  if (!book) {
+    document.body.innerHTML = `<div style="padding:80px; font-family:var(--font-mono); color:var(--paper);">
+      Book not found. <a href="index.html" style="color:var(--gold);">Back to library →</a></div>`;
+    throw new Error("stop");
+  }
+
+  function refreshBook() { book = getBook(bookId); }
+
+  function renderCatalog() {
+    document.getElementById("cat-title").textContent = book.title;
+    document.getElementById("cat-author").textContent = book.author || "Untitled draft";
+    const list = document.getElementById("chapter-list");
+    list.innerHTML = "";
+    book.chapters.forEach((ch, i) => {
+      const el = document.createElement("div");
+      el.className = "chapter-card" + (ch.id === activeChapterId ? " active" : "");
+      el.innerHTML = `
+        <button class="ch-del" title="Delete chapter" data-id="${ch.id}">×</button>
+        <div class="ch-num">CH. ${String(i + 1).padStart(2, "0")}</div>
+        <div class="ch-title">${escapeHtml(ch.title || "Untitled")}</div>
+        <div class="ch-words">${wordCount(ch.content)} words</div>
+      `;
+      el.addEventListener("click", (e) => {
+        if (e.target.classList.contains("ch-del")) return;
+        switchChapter(ch.id);
+      });
+      list.appendChild(el);
+    });
+    list.querySelectorAll(".ch-del").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (book.chapters.length <= 1) { alert("A book needs at least one chapter."); return; }
+        if (!confirm("Delete this chapter? This can't be undone.")) return;
+        deleteChapter(bookId, btn.dataset.id);
+        refreshBook();
+        if (activeChapterId === btn.dataset.id) activeChapterId = book.chapters[0].id;
+        renderCatalog();
+        loadChapterIntoEditor();
+      });
+    });
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = s || "";
+    return d.innerHTML;
+  }
+
+  function switchChapter(id) {
+    flushSave(true);
+    activeChapterId = id;
+    renderCatalog();
+    loadChapterIntoEditor();
+  }
+
+  function currentChapter() {
+    return book.chapters.find((c) => c.id === activeChapterId);
+  }
+
+  function loadChapterIntoEditor() {
+    const ch = currentChapter();
+    if (!ch) return;
+    document.getElementById("chapter-title").value = ch.title || "";
+    document.getElementById("chapter-body").innerHTML = ch.content || "";
+    updateWordCount();
+    setSaved(true);
+  }
+
+  function updateWordCount() {
+    const html = document.getElementById("chapter-body").innerHTML;
+    document.getElementById("word-count").textContent = `${wordCount(html)} words`;
+  }
+
+  function setSaved(saved) {
+    document.getElementById("save-dot").classList.toggle("unsaved", !saved);
+    document.getElementById("save-label").textContent = saved ? "Saved" : "Saving…";
+  }
+
+  function flushSave(immediate) {
+    clearTimeout(saveTimer);
+    const ch = currentChapter();
+    if (!ch) return;
+    const title = document.getElementById("chapter-title").value;
+    const content = document.getElementById("chapter-body").innerHTML;
+    updateChapter(bookId, ch.id, { title, content });
+    refreshBook();
+    setSaved(true);
+  }
+
+  function scheduleSave() {
+    setSaved(false);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 700);
+  }
+
+  document.getElementById("chapter-title").addEventListener("input", () => {
+    scheduleSave();
+    renderCatalogTitleOnly();
+  });
+  document.getElementById("chapter-body").addEventListener("input", () => {
+    scheduleSave();
+    updateWordCount();
+  });
+
+  function renderCatalogTitleOnly() {
+    // lightweight: re-render full catalog list (cheap enough at typical chapter counts)
+    const ch = currentChapter();
+    if (ch) ch.title = document.getElementById("chapter-title").value;
+    renderCatalog();
+  }
+
+  document.getElementById("add-chapter-btn").addEventListener("click", () => {
+    flushSave(true);
+    const ch = addChapter(bookId);
+    refreshBook();
+    activeChapterId = ch.id;
+    renderCatalog();
+    loadChapterIntoEditor();
+    document.getElementById("chapter-title").focus();
+  });
+
+  // formatting toolbar
+  function exec(cmd) {
+    document.execCommand(cmd, false, null);
+    document.getElementById("chapter-body").focus();
+    scheduleSave();
+  }
+  document.getElementById("tb-bold").onclick = () => exec("bold");
+  document.getElementById("tb-italic").onclick = () => exec("italic");
+  document.getElementById("tb-quote").onclick = () => { document.execCommand("formatBlock", false, "blockquote"); scheduleSave(); };
+  document.getElementById("tb-h2").onclick = () => { document.execCommand("formatBlock", false, "h2"); scheduleSave(); };
+
+  // mobile panel toggles
+  document.getElementById("toggle-catalog").onclick = () => document.getElementById("shell").classList.toggle("show-catalog");
+  document.getElementById("toggle-ai").onclick = () => document.getElementById("shell").classList.toggle("show-ai");
+
+  // ---------------- AI assist ----------------
+  const presets = {
+    draft: "Write a full first draft of this chapter based on its title and the manuscript context so far.",
+    continue: "Continue the manuscript naturally from exactly where it leaves off, matching voice and pacing.",
+    expand: "Expand and add sensory, concrete detail to the most recent paragraph of the manuscript, without changing its meaning.",
+    rewrite: "Rewrite the most recent paragraph of the manuscript to be tighter and more vivid, same meaning and voice.",
+    ideas: "In 4-6 short bullet-free sentences, suggest a few directions the story or argument could go next from here.",
+  };
+
+  document.querySelectorAll(".ai-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      document.getElementById("ai-instruction").value = presets[chip.dataset.preset];
+      runAssistant();
+    });
+  });
+  document.getElementById("ai-run").addEventListener("click", runAssistant);
+
+  function refreshKeyNote() {
+    document.getElementById("ai-key-note").style.display = getApiKey() ? "none" : "block";
+  }
+  refreshKeyNote();
+
+  async function runAssistant() {
+    const instruction = document.getElementById("ai-instruction").value.trim();
+    if (!instruction) return;
+    const statusEl = document.getElementById("ai-status");
+    const resultWrap = document.getElementById("ai-result-wrap");
+    const runBtn = document.getElementById("ai-run");
+
+    if (!getApiKey()) { refreshKeyNote(); return; }
+
+    runBtn.disabled = true;
+    statusEl.innerHTML = `<div style="margin-top:14px; display:flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:12px; color:var(--ink-text-soft);"><span class="spinner"></span> Thinking…</div>`;
+    resultWrap.innerHTML = "";
+
+    try {
+      const context = `Book: ${book.title}\nChapter: ${document.getElementById("chapter-title").value}\n\n` +
+        document.getElementById("chapter-body").innerText;
+      const result = await askWritingAssistant(instruction, context);
+      statusEl.innerHTML = "";
+      resultWrap.innerHTML = `
+        <div class="ai-result">${escapeHtml(result)}</div>
+        <div class="ai-result-actions">
+          <button class="btn btn-sm btn-primary" id="ai-insert">Insert into manuscript</button>
+          <button class="btn btn-sm" id="ai-dismiss">Dismiss</button>
+        </div>
+      `;
+      document.getElementById("ai-insert").onclick = () => {
+        const body = document.getElementById("chapter-body");
+        const p = document.createElement("p");
+        p.textContent = result;
+        body.appendChild(p);
+        scheduleSave();
+        updateWordCount();
+        resultWrap.innerHTML = "";
+      };
+      document.getElementById("ai-dismiss").onclick = () => { resultWrap.innerHTML = ""; };
+    } catch (err) {
+      statusEl.innerHTML = `<div style="margin-top:14px; font-family:var(--font-mono); font-size:12px; color:var(--oxblood);">${escapeHtml(err.message || "Something went wrong.")}</div>`;
+      if (err.code === "BAD_KEY") refreshKeyNote();
+    } finally {
+      runBtn.disabled = false;
+    }
+  }
+
+  // ---------------- Export ----------------
+  document.getElementById("export-txt").addEventListener("click", () => { flushSave(true); exportTxt(book); });
+  document.getElementById("export-pdf").addEventListener("click", () => { flushSave(true); exportPdf(book); });
+  document.getElementById("export-epub").addEventListener("click", () => { flushSave(true); exportEpub(book); });
+
+  // init
+  renderCatalog();
+  loadChapterIntoEditor();
+</script>
+</body>
+</html>

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Marginalia — write and publish your ebook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a href="index.html" class="brand"><span class="mark">M</span>arginalia</a>
+    <div class="nav-links">
+      <a href="index.html" class="active">Library</a>
+      <a href="settings.html">AI Settings</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div>
+    <div class="eyebrow">Write · revise · bind</div>
+    <h1>Your books,<br><em>on the shelf</em> where you left them.</h1>
+    <p>Marginalia is a quiet desk for drafting an ebook start to finish — write chapters by hand, call in an AI co-writer when you're stuck, and bind the result into a real EPUB or PDF.</p>
+    <div class="hero-actions">
+      <button class="btn btn-primary" id="hero-new-btn">Start a new book</button>
+      <a href="settings.html" class="btn btn-ghost">Connect AI assist →</a>
+    </div>
+  </div>
+  <div class="shelf-preview">
+    <div class="spines" aria-hidden="true">
+      <div class="spine"></div><div class="spine"></div><div class="spine"></div>
+      <div class="spine"></div><div class="spine"></div><div class="spine"></div><div class="spine"></div>
+    </div>
+  </div>
+</section>
+
+<div class="section-head">
+  <div>
+    <div class="eyebrow" id="shelf-count">0 books</div>
+    <h2>Your shelf</h2>
+  </div>
+</div>
+
+<div class="library" id="library-grid"></div>
+
+<footer>Marginalia — everything is stored in this browser only.</footer>
+
+<!-- New book modal -->
+<div class="modal-backdrop" id="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <h3>Start a new book</h3>
+    <p class="sub">Chapter one is created automatically</p>
+    <div class="field">
+      <label for="f-title">Title</label>
+      <input id="f-title" type="text" placeholder="The Long Way to Morning" />
+    </div>
+    <div class="field">
+      <label for="f-author">Author</label>
+      <input id="f-author" type="text" placeholder="Your name" />
+    </div>
+    <div class="field">
+      <label for="f-genre">Genre <span style="opacity:.5;">(optional)</span></label>
+      <input id="f-genre" type="text" placeholder="Literary fiction" />
+    </div>
+    <div class="field">
+      <label>Spine color</label>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="modal-create">Create book</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script>
+  let selectedColor = SPINE_COLORS[0].value;
+
+  function renderSwatches() {
+    const wrap = document.getElementById("swatches");
+    wrap.innerHTML = "";
+    SPINE_COLORS.forEach((c) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "swatch" + (c.value === selectedColor ? " selected" : "");
+      el.style.background = c.value;
+      el.title = c.name;
+      el.onclick = () => { selectedColor = c.value; renderSwatches(); };
+      wrap.appendChild(el);
+    });
+  }
+
+  function renderLibrary() {
+    const books = loadBooks();
+    document.getElementById("shelf-count").textContent = `${books.length} book${books.length === 1 ? "" : "s"}`;
+    const grid = document.getElementById("library-grid");
+    grid.innerHTML = "";
+
+    books.forEach((book) => {
+      const card = document.createElement("button");
+      card.className = "book-card";
+      card.innerHTML = `
+        <div class="book-spine-card" style="background:${book.color}; border-left-color:rgba(0,0,0,.35)">
+          <div class="title">${escapeHtml(book.title)}</div>
+        </div>
+        <div class="book-meta">
+          <span>${bookWordCount(book).toLocaleString()} words</span>
+          <span>${book.chapters.length} ch.</span>
+        </div>
+      `;
+      card.onclick = () => { window.location.href = `editor.html?book=${book.id}`; };
+      grid.appendChild(card);
+    });
+
+    const addCard = document.createElement("button");
+    addCard.className = "new-book-card";
+    addCard.innerHTML = `<span class="plus">+</span><span>New book</span>`;
+    addCard.onclick = openModal;
+    grid.appendChild(addCard);
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = s || "";
+    return d.innerHTML;
+  }
+
+  function openModal() {
+    document.getElementById("f-title").value = "";
+    document.getElementById("f-author").value = "";
+    document.getElementById("f-genre").value = "";
+    selectedColor = SPINE_COLORS[0].value;
+    renderSwatches();
+    document.getElementById("modal-backdrop").style.display = "flex";
+    document.getElementById("f-title").focus();
+  }
+  function closeModal() {
+    document.getElementById("modal-backdrop").style.display = "none";
+  }
+
+  document.getElementById("hero-new-btn").onclick = openModal;
+  document.getElementById("modal-cancel").onclick = closeModal;
+  document.getElementById("modal-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "modal-backdrop") closeModal();
+  });
+  document.getElementById("modal-create").onclick = () => {
+    const title = document.getElementById("f-title").value.trim();
+    if (!title) { document.getElementById("f-title").focus(); return; }
+    const book = createBook({
+      title,
+      author: document.getElementById("f-author").value.trim(),
+      genre: document.getElementById("f-genre").value.trim(),
+      color: selectedColor,
+    });
+    window.location.href = `editor.html?book=${book.id}`;
+  };
+
+  renderLibrary();
+</script>
+</body>
+</html>

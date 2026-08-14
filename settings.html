@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Marginalia — AI settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a href="index.html" class="brand"><span class="mark">M</span>arginalia</a>
+    <div class="nav-links">
+      <a href="index.html">Library</a>
+      <a href="settings.html" class="active">AI Settings</a>
+    </div>
+  </div>
+</nav>
+
+<div class="settings-wrap">
+  <div class="eyebrow">Configuration</div>
+  <h1>Connect your writing assistant</h1>
+  <p class="lead">Marginalia runs entirely in this browser — there's no server. To use the AI assistant, add your own Anthropic API key. It's stored only in this browser's local storage and sent directly to Anthropic when you ask for help.</p>
+
+  <div class="settings-card">
+    <h3>Anthropic API key</h3>
+    <p>Get a key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style="color:var(--gold);">console.anthropic.com</a>. Keys look like <code>sk-ant-…</code></p>
+    <div class="field">
+      <label for="api-key">API key</label>
+      <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+    </div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-primary" id="save-key">Save key</button>
+      <button class="btn btn-ghost" id="remove-key">Remove</button>
+    </div>
+    <div class="status-line" id="status"></div>
+  </div>
+
+  <div class="settings-card">
+    <h3>How the assistant is used</h3>
+    <p style="margin-bottom:0;">In the editor, the assistant sees the current chapter's title and text as context. It can draft a chapter from scratch, continue where you left off, expand or tighten a passage, or suggest where the story goes next. Nothing is sent anywhere until you tap "Ask assistant."</p>
+  </div>
+</div>
+
+<footer>Marginalia — everything is stored in this browser only.</footer>
+
+<script src="js/ai.js"></script>
+<script>
+  const input = document.getElementById("api-key");
+  const status = document.getElementById("status");
+  input.value = getApiKey();
+
+  document.getElementById("save-key").addEventListener("click", async () => {
+    const key = input.value.trim();
+    if (!key) { status.textContent = "Enter a key first."; status.className = "status-line err"; return; }
+    status.textContent = "Checking key…";
+    status.className = "status-line";
+    try {
+      await testApiKey(key);
+      setApiKey(key);
+      status.textContent = "Connected. The assistant is ready in the editor.";
+      status.className = "status-line ok";
+    } catch (e) {
+      status.textContent = e.message || "Couldn't verify that key.";
+      status.className = "status-line err";
+    }
+  });
+
+  document.getElementById("remove-key").addEventListener("click", () => {
+    clearApiKey();
+    input.value = "";
+    status.textContent = "Key removed.";
+    status.className = "status-line";
+  });
+</script>
+</body>
+</html>
